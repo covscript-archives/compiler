@@ -250,6 +250,7 @@ namespace cs_impl {
                 case lexer_state::PARSING_STRING:
                     // unexpected EOF when parsing string
                     _state.replace(lexer_state::ERROR_EOF);
+                    // fall-through
                 default:
                     // error happened, reason stored in state
                     return mpp::string_ref{};
