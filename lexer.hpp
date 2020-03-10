@@ -107,7 +107,7 @@ namespace cs_impl {
         lexer_input<CharT> _input;
 
         // return true if moved to next line
-        bool move_to_next_line(iter_t &current, iter_t &end) {
+        bool consume_line(iter_t &current, iter_t &end) {
             mpp::string_ref now(current, end - current);
             std::size_t new_line_start = now.find_first_of('\n');
             if (new_line_start != mpp::string_ref::npos) {
@@ -275,7 +275,7 @@ namespace cs_impl {
                     if (*p == '#' || *p == '@') {
                         // comment and preprocessor tag in CovScript 3
                         printf("meet old tag\n");
-                        move_to_next_line(p, end);
+                        consume_line(p, end);
                         continue;
                     }
                 }
