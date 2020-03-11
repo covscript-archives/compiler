@@ -704,5 +704,5 @@ namespace cs_impl {
 }
 
 namespace cs {
-    using lexer = cs_impl::lexer;
+    using cs_impl::lexer;
 }
