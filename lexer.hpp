@@ -305,10 +305,10 @@ namespace cs_impl {
                    || c == U'$'
                    || c == U'_'
                    || _charset->is_identifier(c)
-                   || (!first && (c >= U'0' && c <= U'9'));
+                   || (!first && is_digit_char(c));
         }
 
-        bool is_separator_char(CharT c) {
+        bool is_separator_char(CharT c) const {
             return c == U' '
                    || c == U'\n'
                    || c == U'\r'
@@ -316,6 +316,10 @@ namespace cs_impl {
                    || c == U'\f'
                    || c == U'\v'
                    || c == U';';
+        }
+
+        bool is_digit_char(CharT c) const {
+            return (c >= U'0' && c <= U'9');
         }
 
         std::string consume_preprocessor(iter_t &current, iter_t &end) {
@@ -343,7 +347,7 @@ namespace cs_impl {
                     found_point = true;
                     break;
                 }
-                if (std::isdigit(*lookahead)) {
+                if (is_digit_char(*lookahead)) {
                     ++lookahead;
                 } else {
                     break;
@@ -358,7 +362,7 @@ namespace cs_impl {
                 int npoints = 1;
 
                 while (current < end) {
-                    if (std::isdigit(*current)) {
+                    if (is_digit_char(*current)) {
                         if (after_point) {
                             floating_part = floating_part * 10 + *current++ - U'0';
                             npoints *= 10;
@@ -395,7 +399,7 @@ namespace cs_impl {
                                          || (*current >= U'a' && *current <= U'f')
                                          || (*current >= U'A' && *current <= U'F'))) {
                     integer_part = integer_part * 16
-                                   + (*current & 15)
+                                   + (*current & 15U)
                                    + (*current >= U'A' ? 9 : 0);
                     ++current;
                 }
@@ -634,7 +638,7 @@ namespace cs_impl {
                 }
 
                 // digit
-                if (std::isdigit(*p)) {
+                if (is_digit_char(*p)) {
                     iter_t token_start = p;
                     auto result = consume_number(p, end);
                     switch (_state.pop()) {
