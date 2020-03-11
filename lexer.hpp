@@ -11,14 +11,67 @@
 
 namespace cs_impl {
     enum class token_type {
+        END_OF_FILE,
         ID_OR_KW,
         INT_LITERAL,
         FLOATING_LITERAL,
         STRING_LITERAL,
+        PREPROCESSOR,
     };
 
     struct token {
+        token_type _type = token_type::END_OF_FILE;
+
+        explicit token(token_type type) : _type(type) {}
+
         virtual ~token() = default;
+
+        token_type type() const { return _type; }
+    };
+
+    struct token_preprocessor : public token {
+        std::string _value;
+
+        explicit token_preprocessor(std::string value)
+            : token(token_type::PREPROCESSOR), _value(std::move(value)) {}
+
+        ~token_preprocessor() override = default;
+    };
+
+    struct token_id_or_kw : public token {
+        std::string _value;
+
+        explicit token_id_or_kw(std::string value)
+            : token(token_type::ID_OR_KW), _value(std::move(value)) {}
+
+        ~token_id_or_kw() override = default;
+    };
+
+    struct token_int_literal : public token {
+        int64_t _value;
+
+        explicit token_int_literal(int64_t value)
+            : token(token_type::INT_LITERAL), _value(value) {}
+
+        ~token_int_literal() override = default;
+    };
+
+    struct token_float_literal : public token {
+        double _value;
+
+        explicit token_float_literal(double value)
+            : token(token_type::FLOATING_LITERAL), _value(value) {}
+
+        ~token_float_literal() override = default;
+    };
+
+    struct token_string_literal : public token {
+        std::string _value;
+
+        explicit token_string_literal(std::string value)
+            : token(token_type::STRING_LITERAL), _value(std::move(value)) {}
+
+        ~token_string_literal() override = default;
     };
 
     enum class lexer_state {
@@ -26,6 +79,7 @@ namespace cs_impl {
         INT_LIT,
         FLOATING_LIT,
         STRING_LIT,
+        PREPROCESSOR,
 
         PARSING_STRING,
 
@@ -106,15 +160,27 @@ namespace cs_impl {
         state_manager _state;
         lexer_input<CharT> _input;
 
-        // return true if moved to next line
-        bool consume_line(iter_t &current, iter_t &end) {
+        // return true if it's id or keyword
+        bool is_id_or_kw(CharT c, bool first) const {
+            return std::isalpha(c)
+                   || c == '$'
+                   || c == '_'
+                   || (!first && std::isdigit(c));
+        }
+
+        mpp::string_ref consume_preprocessor(iter_t &current, iter_t &end) {
+            iter_t left = current;
             mpp::string_ref now(current, end - current);
             std::size_t new_line_start = now.find_first_of('\n');
+
+            _state.new_state(lexer_state::PREPROCESSOR);
             if (new_line_start != mpp::string_ref::npos) {
                 current += new_line_start;
-                return true;
+                return mpp::string_ref{left, new_line_start};
+            } else {
+                current = end;
+                return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
             }
-            return false;
         }
 
         std::pair<int64_t, double> consume_number(iter_t &current, iter_t &end) {
@@ -124,8 +190,23 @@ namespace cs_impl {
                 return std::make_pair(integer_part, 0);
             }
 
-            // starts with non-zero: must be dec
-            if (integer_part != 0) {
+            // lookahead for (.)
+            bool found_point = false;
+            iter_t lookahead = current;
+            while (lookahead < end) {
+                if (*current == '.') {
+                    found_point = true;
+                    break;
+                }
+                if (std::isdigit(*lookahead)) {
+                    ++lookahead;
+                } else {
+                    break;
+                }
+            }
+
+            // starts with non-zero or contains floating point: must be dec
+            if (integer_part != 0 || found_point) {
                 // parsing dec number
                 bool after_point = false;
                 int64_t floating_part = 0;
@@ -257,6 +338,15 @@ namespace cs_impl {
             }
         }
 
+        mpp::string_ref consume_id_or_kw(iter_t &current, iter_t &end) {
+            // start part
+            iter_t left = current++;
+            while (current < end && is_id_or_kw(*current, false)) {
+                ++current;
+            }
+            return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
+        }
+
     public:
         void source(const std::basic_string<CharT> &str) {
             _input.source(str.c_str(), str.length());
@@ -275,8 +365,15 @@ namespace cs_impl {
                 if (line_start == p) {
                     if (*p == '#' || *p == '@') {
                         // comment and preprocessor tag in CovScript 3
-                        printf("meet old tag\n");
-                        consume_line(p, end);
+                        auto value = consume_preprocessor(p, end);
+                        switch (_state.pop()) {
+                            case lexer_state::PREPROCESSOR:
+                                printf("meet proprocessor: [%s]\n", value.str().c_str());
+                                break;
+                            default:
+                                printf("should not reach here\n");
+                                return;
+                        }
                         continue;
                     }
                 }
@@ -307,7 +404,7 @@ namespace cs_impl {
                             break;
                         default:
                             printf("should not reach here\n");
-                            break;
+                            return;
                     }
                     continue;
                 }
@@ -321,14 +418,21 @@ namespace cs_impl {
                             break;
                         case lexer_state::ERROR_EOF:
                             printf("unexpected EOF\n");
-                            break;
+                            return;
                         case lexer_state::ERROR_ESCAPE:
                             printf("unsupported escape char\n");
-                            break;
+                            return;
                         default:
                             printf("should not reach here\n");
-                            break;
+                            return;
                     }
+                    continue;
+                }
+
+                // id or kw
+                if (is_id_or_kw(*p, true)) {
+                    auto value = consume_id_or_kw(p, end);
+                    printf("meet id or kw: [%s]\n", value.str().c_str());
                     continue;
                 }
 
