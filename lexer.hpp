@@ -448,7 +448,6 @@ namespace cs_impl {
                         case U'f':  // \f
                         case U'v':  // \v
                         case U'\\':
-                        case U'0':  // \033
                         case U'e':  // \e
                         case U'"':  // \"
                             escape = false;
