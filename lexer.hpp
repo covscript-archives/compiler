@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <mozart++/string>
 #include <mozart++/iterator_range>
+#include <mozart++/format>
 
 namespace cs_impl {
     enum class token_type {
@@ -230,6 +231,21 @@ namespace cs_impl {
         }
     };
 
+    struct lexer_error : public std::runtime_error {
+        std::size_t _line;
+        std::size_t _column;
+        std::string _error_text;
+
+        explicit lexer_error(std::size_t line, std::size_t column,
+                             const std::string &error_text,
+                             const std::string &message)
+            : std::runtime_error(message), _line(line), _column(column),
+              _error_text(error_text) {
+        }
+
+        ~lexer_error() override = default;
+    };
+
     template <typename CharT>
     struct basic_lexer {
         using iter_t = const CharT *;
@@ -246,6 +262,18 @@ namespace cs_impl {
                 new T{line, static_cast<std::size_t>(token_start - line_start),
                       std::basic_string<CharT>(token_start, token_end - token_start),
                       std::forward<Args>(args)...}
+            );
+        }
+
+        template <typename ...Args>
+        void error(std::size_t line, iter_t line_start,
+                   iter_t token_start, iter_t token_end,
+                   const std::string &fmt, Args &&...args) {
+            auto message = mpp::format(fmt, std::forward<Args>(args)...);
+            mpp::throw_ex<lexer_error>(
+                line, static_cast<std::size_t>(token_end - line_start),
+                std::basic_string<CharT>(token_start, token_end - token_start),
+                message
             );
         }
 
@@ -489,7 +517,8 @@ namespace cs_impl {
                                     token_start, p, value.str()));
                                 break;
                             default:
-                                printf("should not reach here\n");
+                                error(line_no, line_start, token_start, p,
+                                    "<internal error>: illegal state in preprocessor tag");
                                 return;
                         }
                         continue;
@@ -523,7 +552,8 @@ namespace cs_impl {
                                 line_no, line_start, token_start, p, result.second));
                             break;
                         default:
-                            printf("should not reach here\n");
+                            error(line_no, line_start, token_start, p,
+                                "<internal error>: illegal state in number literal");
                             return;
                     }
                     continue;
@@ -540,12 +570,16 @@ namespace cs_impl {
                             break;
                         case lexer_state::ERROR_EOF:
                             printf("unexpected EOF\n");
+                            error(line_no, line_start, token_start, p,
+                                "unexpected EOF");
                             return;
                         case lexer_state::ERROR_ESCAPE:
-                            printf("unsupported escape char\n");
+                            error(line_no, line_start, token_start, p,
+                                "unsupported escape char: \\{}", *p);
                             return;
                         default:
-                            printf("should not reach here\n");
+                            error(line_no, line_start, token_start, p,
+                                "<internal error>: illegal state in string literal");
                             return;
                     }
                     continue;
@@ -569,10 +603,12 @@ namespace cs_impl {
                             line_no, line_start, token_start, p, value.first.str(), value.second));
                         break;
                     case lexer_state::ERROR_OPERATOR:
-                        printf("!! unexpected token [%s]\n", value.first.str().c_str());
+                        error(line_no, line_start, token_start, p,
+                            "unexpected token {}", value.first.str());
                         return;
                     default:
-                        printf("should not reach here\n");
+                        error(line_no, line_start, token_start, p,
+                            "<internal error>: illegal state in post-done lex");
                         return;
                 }
             }

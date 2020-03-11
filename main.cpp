@@ -12,7 +12,11 @@ int main() {
                        "h(text);p(text)\n"
                        "a(text);\n"
                        "b(text)\n"
-                       "";
+                       "var hi = \"hello\\n\" +"
+                       "    \"world\\n\" +"
+                       "    \", I love\""
+                       "var me = 12304"
+                       "var e = \"\"";
 
     lexer.source(code);
 
