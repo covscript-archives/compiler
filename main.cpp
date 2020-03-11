@@ -4,7 +4,7 @@
 int main() {
     using namespace cs_impl;
 
-    cs::lexer lexer;
+    cs::lexer lexer{std::make_unique<mpp::codecvt::utf8>()};
     std::string code = "#!/usr/bin/env cs4\n"
                        "var text = \"hello world\"\n"
                        "system.out.println(text)\n"
@@ -22,7 +22,11 @@ int main() {
                        "var e4 = \"\"_ "
                        "var e5 = 1_lint "
                        "var e6 = 1.0_lfloat\n"
-                       "var e7 = 0x88_lhex\n";
+                       "var e7 = 0x88_lhex\n"
+                       "变量 我爱你 = \"草你🐎的大🔨\""
+                       "while(我爱你 != 淦tmd){"
+                       "    打印(我日)"
+                       "}";
 
     lexer.source(code);
 
@@ -71,7 +75,13 @@ int main() {
         {"}",   operator_type::OPERATOR_RBRACE},
         {";",   operator_type::OPERATOR_SEMI},
     });
-    lexer.lex(d);
+
+    try {
+        lexer.lex(d);
+    } catch (const cs_impl::lexer_error &e) {
+        mpp::format(std::cout, "Lexer error at line {} column {}-{}: {}\n",
+            e._line, e._start_column, e._end_column, e.what());
+    }
 
     for (const auto &token : d) {
         switch (token->_type) {

@@ -7,10 +7,11 @@
 #include <deque>
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <mozart++/string>
+#include <mozart++/codecvt>
 #include <mozart++/iterator_range>
 #include <mozart++/format>
-#include <utility>
 
 namespace cs_impl {
     enum class token_type {
@@ -224,20 +225,18 @@ namespace cs_impl {
         }
     };
 
-    template <typename CharT>
     struct lexer_input {
+        using CharT = char32_t;
     private:
+        std::u32string _source;
         const CharT *_begin = nullptr;
         std::size_t _length = 0;
 
     public:
-        void source(const CharT *begin, std::size_t length) {
-            this->_begin = begin;
-            this->_length = length;
-        }
-
-        mpp::iterator_range<CharT> ranges() const {
-            return mpp::make_range(_begin, _begin + _length);
+        void source(std::u32string data) {
+            std::swap(_source, data);
+            this->_begin = _source.c_str();
+            this->_length = _source.length();
         }
 
         const CharT *begin() const {
@@ -251,25 +250,27 @@ namespace cs_impl {
 
     struct lexer_error : public std::runtime_error {
         std::size_t _line;
-        std::size_t _column;
+        std::size_t _start_column;
+        std::size_t _end_column;
         std::string _error_text;
 
-        explicit lexer_error(std::size_t line, std::size_t column,
-                             std::string error_text,
-                             const std::string &message)
-            : std::runtime_error(message), _line(line), _column(column),
+        explicit lexer_error(std::size_t line, std::size_t start_column, std::size_t end_column,
+                             std::string error_text, const std::string &message)
+            : std::runtime_error(message), _line(line),
+              _start_column(start_column), _end_column(end_column),
               _error_text(std::move(error_text)) {
         }
 
         ~lexer_error() override = default;
     };
 
-    template <typename CharT>
-    struct basic_lexer {
+    struct lexer {
+        using CharT = char32_t;
         using iter_t = const CharT *;
     private:
         state_manager _state;
-        lexer_input<CharT> _input;
+        lexer_input _input;
+        std::unique_ptr<mpp::codecvt::charset> _charset;
         std::unordered_map<std::string, operator_type> _op_maps;
 
         template <typename T, typename ...Args>
@@ -278,7 +279,7 @@ namespace cs_impl {
                                           Args &&...args) {
             return std::unique_ptr<token>(
                 new T{line, static_cast<std::size_t>(token_start - line_start),
-                      std::basic_string<CharT>(token_start, token_end - token_start),
+                      _charset->wide2local({token_start, static_cast<std::size_t>(token_end - token_start)}),
                       std::forward<Args>(args)...}
             );
         }
@@ -290,8 +291,9 @@ namespace cs_impl {
                    const std::string &fmt, Args &&...args) {
             auto message = mpp::format(fmt, std::forward<Args>(args)...);
             mpp::throw_ex<lexer_error>(
-                line, static_cast<std::size_t>(token_end - line_start),
-                std::basic_string<CharT>(token_start, token_end - token_start),
+                line, static_cast<std::size_t>(token_start - line_start),
+                static_cast<std::size_t>(token_end - line_start),
+                _charset->wide2local({token_start, static_cast<std::size_t>(token_end - token_start)}),
                 message
             );
             std::terminate();
@@ -299,33 +301,36 @@ namespace cs_impl {
 
         // return true if it's id or keyword
         bool is_id_or_kw(CharT c, bool first) const {
-            return std::isalpha(c)
-                   || c == '$'
-                   || c == '_'
-                   || (!first && std::isdigit(c));
+            return (c >= U'a' && c <= U'z')
+                   || (c >= U'A' && c <= U'Z')
+                   || c == U'$'
+                   || c == U'_'
+                   || _charset->is_identifier(c)
+                   || (!first && (c >= U'0' && c <= U'9'));
         }
 
         bool is_separator_char(CharT c) {
-            return std::isspace(c) || c == ';';
+            return c == U' '
+                   || c == U'\n'
+                   || c == U'\r'
+                   || c == U'\t'
+                   || c == U'\f'
+                   || c == U'\v'
+                   || c == U';';
         }
 
-        mpp::string_ref consume_preprocessor(iter_t &current, iter_t &end) {
+        std::string consume_preprocessor(iter_t &current, iter_t &end) {
             iter_t left = current;
-            mpp::string_ref now(current, end - current);
-            std::size_t new_line_start = now.find_first_of('\n');
+            auto length = static_cast<std::size_t>(end - current);
+            auto *s = std::char_traits<char32_t>::find(current, length, U'\n');
 
+            current = s ? s : end;
             _state.new_state(lexer_state::PREPROCESSOR);
-            if (new_line_start != mpp::string_ref::npos) {
-                current += new_line_start;
-                return mpp::string_ref{left, new_line_start};
-            } else {
-                current = end;
-                return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
-            }
+            return _charset->wide2local({left, static_cast<std::size_t>(current - left)});
         }
 
         std::pair<int64_t, double> consume_number(iter_t &current, iter_t &end) {
-            int64_t integer_part = *current++ - '0';
+            int64_t integer_part = *current++ - U'0';
             if (current == end) {
                 _state.new_state(lexer_state::INT_LIT);
                 return std::make_pair(integer_part, 0);
@@ -335,7 +340,7 @@ namespace cs_impl {
             bool found_point = false;
             iter_t lookahead = current;
             while (lookahead < end) {
-                if (*current == '.') {
+                if (*current == U'.') {
                     found_point = true;
                     break;
                 }
@@ -356,12 +361,12 @@ namespace cs_impl {
                 while (current < end) {
                     if (std::isdigit(*current)) {
                         if (after_point) {
-                            floating_part = floating_part * 10 + *current++ - '0';
+                            floating_part = floating_part * 10 + *current++ - U'0';
                             npoints *= 10;
                         } else {
-                            integer_part = integer_part * 10 + *current++ - '0';
+                            integer_part = integer_part * 10 + *current++ - U'0';
                         }
-                    } else if (*current == '.') {
+                    } else if (*current == U'.') {
                         after_point = true;
                         current++;
                     } else {
@@ -384,25 +389,25 @@ namespace cs_impl {
             // must be int
             _state.new_state(lexer_state::INT_LIT);
 
-            if (*current == 'x' || *current == 'X') {
+            if (*current == U'x' || *current == U'X') {
                 // parsing hex number
                 ++current;
-                while (current < end && ((*current >= '0' && *current <= '9')
-                                         || (*current >= 'a' && *current <= 'f')
-                                         || (*current >= 'A' && *current <= 'F'))) {
+                while (current < end && ((*current >= U'0' && *current <= U'9')
+                                         || (*current >= U'a' && *current <= U'f')
+                                         || (*current >= U'A' && *current <= U'F'))) {
                     integer_part = integer_part * 16
                                    + (*current & 15)
-                                   + (*current >= 'A' ? 9 : 0);
+                                   + (*current >= U'A' ? 9 : 0);
                     ++current;
                 }
 
                 return std::make_pair(integer_part, 0);
 
-            } else if (*current == 'b' || *current == 'B') {
+            } else if (*current == U'b' || *current == U'B') {
                 // parsing binary number
                 ++current;
-                while (current < end && (*current == '0' || *current == '1')) {
-                    integer_part = integer_part * 2 + *current - '0';
+                while (current < end && (*current == U'0' || *current == U'1')) {
+                    integer_part = integer_part * 2 + *current - U'0';
                     ++current;
                 }
 
@@ -410,8 +415,8 @@ namespace cs_impl {
 
             } else {
                 // parsing oct number
-                while (current < end && *current >= '0' && *current <= '7') {
-                    integer_part = integer_part * 8 + *current - '0';
+                while (current < end && *current >= U'0' && *current <= U'7') {
+                    integer_part = integer_part * 8 + *current - U'0';
                     ++current;
                 }
 
@@ -419,8 +424,8 @@ namespace cs_impl {
             }
         }
 
-        mpp::string_ref consume_string_lit(iter_t &current, iter_t &end) {
-            if (*current == '"') {
+        std::string consume_string_lit(iter_t &current, iter_t &end) {
+            if (*current == U'"') {
                 ++current;
             }
 
@@ -432,15 +437,17 @@ namespace cs_impl {
             while (current < end && _state.current() == lexer_state::PARSING_STRING) {
                 if (escape) {
                     switch (*current) {
-                        case 'r':  // \r
-                        case 'n':  // \n
-                        case 't':  // \t
-                        case 'x':  // \x
-                        case 'b':  // \b
-                        case '\\':
-                        case '0':  // \033
-                        case 'e':  // \e
-                        case '"':  // \"
+                        case U'r':  // \r
+                        case U'n':  // \n
+                        case U't':  // \t
+                        case U'x':  // \x
+                        case U'b':  // \b
+                        case U'f':  // \f
+                        case U'v':  // \v
+                        case U'\\':
+                        case U'0':  // \033
+                        case U'e':  // \e
+                        case U'"':  // \"
                             escape = false;
                             ++current;
                             break;
@@ -451,11 +458,11 @@ namespace cs_impl {
                     }
                 } else {
                     switch (*current) {
-                        case '\\':
+                        case U'\\':
                             escape = true;
                             ++current;
                             break;
-                        case '"':
+                        case U'"':
                             _state.replace(lexer_state::STRING_LIT);
                             ++current;
                             break;
@@ -468,7 +475,7 @@ namespace cs_impl {
 
             switch (_state.current()) {
                 case lexer_state::STRING_LIT:
-                    return mpp::string_ref{left, static_cast<std::size_t>(current - left - 1)};
+                    return _charset->wide2local({left, static_cast<std::size_t>(current - left - 1)});
                 case lexer_state::PARSING_STRING:
                     // unexpected EOF when parsing string
                     _state.replace(lexer_state::ERROR_EOF);
@@ -479,16 +486,16 @@ namespace cs_impl {
             }
         }
 
-        mpp::string_ref consume_id_or_kw(iter_t &current, iter_t &end) {
+        std::string consume_id_or_kw(iter_t &current, iter_t &end) {
             // start part
             iter_t left = current++;
             while (current < end && is_id_or_kw(*current, false)) {
                 ++current;
             }
-            return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
+            return _charset->wide2local({left, static_cast<std::size_t>(current - left)});
         }
 
-        std::pair<mpp::string_ref, operator_type> consume_operator(iter_t &current, iter_t &end) {
+        std::pair<std::string, operator_type> consume_operator(iter_t &current, iter_t &end) {
             iter_t left = current;
             while (current < end
                    && !is_separator_char(*current)
@@ -496,8 +503,8 @@ namespace cs_impl {
                 ++current;
             }
 
-            mpp::string_ref op{left, static_cast<std::size_t>(current - left)};
-            auto iter = _op_maps.find(op.str());
+            std::string op = _charset->wide2local({left, static_cast<std::size_t>(current - left)});
+            auto iter = _op_maps.find(op);
             if (iter != _op_maps.end()) {
                 _state.new_state(lexer_state::OPERATOR);
                 return std::make_pair(op, iter->second);
@@ -507,12 +514,12 @@ namespace cs_impl {
             return std::make_pair(op, operator_type::UNDEFINED);
         }
 
-        mpp::string_ref try_consume_literal_suffix(std::deque<std::unique_ptr<token>> &tokens,
-                                                   std::size_t line_no, iter_t line_start,
-                                                   iter_t &current, iter_t end) {
+        std::string try_consume_literal_suffix(std::deque<std::unique_ptr<token>> &tokens,
+                                               std::size_t line_no, iter_t line_start,
+                                               iter_t &current, iter_t end) {
             // got literal suffix
-            if (*current != '_') {
-                return mpp::string_ref{};
+            if (*current != U'_') {
+                return std::string{};
             }
 
             auto value = consume_id_or_kw(current, end);
@@ -521,8 +528,12 @@ namespace cs_impl {
         }
 
     public:
-        void source(const std::basic_string<CharT> &str) {
-            _input.source(str.c_str(), str.length());
+        explicit lexer(std::unique_ptr<mpp::codecvt::charset> charset)
+            : _charset(std::move(charset)) {
+        }
+
+        void source(const std::string &str) {
+            _input.source(_charset->local2wide(str));
         }
 
         void add_operators(const std::unordered_map<std::string, operator_type> &ops) {
@@ -537,20 +548,20 @@ namespace cs_impl {
             std::size_t line_no = 1;
             iter_t line_start = p;
 
-            while (p != end) {
+            while (p < end) {
                 /////////////////////////////////////////////////////////////////
                 // special position
                 /////////////////////////////////////////////////////////////////
                 // tokens only available in the beginning of a line
                 if (line_start == p) {
-                    if (*p == '#' || *p == '@') {
+                    if (*p == U'#' || *p == U'@') {
                         // comment and preprocessor tag in CovScript 3
                         iter_t token_start = p;
                         auto value = consume_preprocessor(p, end);
                         switch (_state.pop()) {
                             case lexer_state::PREPROCESSOR:
                                 tokens.push_back(make_token<token_preprocessor>(line_no, line_start,
-                                    token_start, p, value.str()));
+                                    token_start, p, value));
                                 break;
                             default:
                                 error(line_no, line_start, token_start, p,
@@ -585,14 +596,14 @@ namespace cs_impl {
                                 break;
                             default:
                                 error(line_no, line_start, token_start, p,
-                                    "unsupported literal suffix {} after non-literal", value.str());
+                                    "unsupported literal suffix {} after non-literal", value);
                         }
 
                         auto literal = std::move(tokens.back());
                         tokens.pop_back();
                         tokens.push_back(make_token<token_custom_literal>(
                             line_no, line_start, token_start, p,
-                            std::move(literal), value.str()));
+                            std::move(literal), value));
                     }
                     continue;
                 }
@@ -601,16 +612,16 @@ namespace cs_impl {
                 // global state
                 /////////////////////////////////////////////////////////////////
 
-                // skip separators
-                if (is_separator_char(*p)) {
-                    ++p;
+                // if we meet \n
+                if (*p == U'\n') {
+                    ++line_no;
+                    line_start = ++p;
                     continue;
                 }
 
-                // if we meet \n
-                if (*p == '\n') {
-                    ++line_no;
-                    line_start = ++p;
+                // skip separators
+                if (is_separator_char(*p)) {
+                    ++p;
                     continue;
                 }
 
@@ -639,13 +650,13 @@ namespace cs_impl {
                 }
 
                 // string literal
-                if (*p == '"') {
+                if (*p == U'"') {
                     iter_t token_start = p;
                     auto value = consume_string_lit(p, end);
                     switch (_state.pop()) {
                         case lexer_state::STRING_LIT:
                             tokens.push_back(make_token<token_string_literal>(
-                                line_no, line_start, token_start, p, value.str()));
+                                line_no, line_start, token_start, p, value));
                             // try parse literal suffix
                             _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
                             break;
@@ -668,7 +679,7 @@ namespace cs_impl {
                     iter_t token_start = p;
                     auto value = consume_id_or_kw(p, end);
                     tokens.push_back(make_token<token_id_or_kw>(
-                        line_no, line_start, token_start, p, value.str()));
+                        line_no, line_start, token_start, p, value));
                     continue;
                 }
 
@@ -678,11 +689,11 @@ namespace cs_impl {
                 switch (_state.pop()) {
                     case lexer_state::OPERATOR:
                         tokens.push_back(make_token<token_operator>(
-                            line_no, line_start, token_start, p, value.first.str(), value.second));
+                            line_no, line_start, token_start, p, value.first, value.second));
                         break;
                     case lexer_state::ERROR_OPERATOR:
                         error(line_no, line_start, token_start, p,
-                            "unexpected token {}", value.first.str());
+                            "unexpected token '{}'", value.first);
                     default:
                         error(line_no, line_start, token_start, p,
                             "<internal error>: illegal state in post-done lex");
@@ -693,5 +704,5 @@ namespace cs_impl {
 }
 
 namespace cs {
-    using lexer = cs_impl::basic_lexer<char>;
+    using lexer = cs_impl::lexer;
 }
