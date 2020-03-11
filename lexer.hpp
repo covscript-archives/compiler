@@ -497,6 +497,8 @@ namespace cs_impl {
 
         std::pair<std::string, operator_type> consume_operator(iter_t &current, iter_t &end) {
             iter_t left = current;
+
+            // be greedy, be lookahead
             while (current < end
                    && !is_separator_char(*current)
                    && !is_id_or_kw(*current, false)) {
@@ -511,6 +513,7 @@ namespace cs_impl {
                     _state.new_state(lexer_state::OPERATOR);
                     return std::make_pair(op, iter->second);
                 }
+                // lookahead failed, try previous one
                 --current;
             }
 
