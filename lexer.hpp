@@ -8,9 +8,7 @@
 #include <memory>
 #include <unordered_map>
 #include <utility>
-#include <mozart++/string>
 #include <mozart++/codecvt>
-#include <mozart++/iterator_range>
 #include <mozart++/format>
 
 namespace cs_impl {
@@ -482,7 +480,7 @@ namespace cs_impl {
                     // fall-through
                 default:
                     // error happened, reason stored in state
-                    return mpp::string_ref{};
+                    return std::string{};
             }
         }
 
