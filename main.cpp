@@ -2,66 +2,87 @@
 #include "lexer.hpp"
 
 int main() {
-    using cs_impl::token_type;
+    using namespace cs_impl;
 
     cs::lexer lexer;
     std::string code = "#!/usr/bin/env cs4\n"
-                       "test0 0 1 2 3 4 5 6 7\n"
-                       "fuck0 0.1 0.4 11.21 112.33321 1234567\n"
-                       "end122\n"
-                       "n0x123 0b123 0123\n"
-                       "error0s 0x7FFFz\n"
-                       "oct 0123 0755\n"
-                       "str \"fuck you\"\n"
-                       "str \"\"\n"
-                       "str \"hello\\n\\r\\t\\e\\x\\0world\"\n"
-                       "test-multi-line \"this is a multi-\n  line\n  string\"\n"
+                       "var text = \"hello world\"\n"
+                       "system.out.println(text)\n"
+                       "f(text) g(text)\n"
+                       "h(text);p(text)\n"
+                       "a(text);\n"
+                       "b(text)\n"
                        "";
 
     lexer.source(code);
 
-    std::deque<std::unique_ptr<cs_impl::token>> d;
+    std::deque<std::unique_ptr<token>> d;
     lexer.add_operators({
-        {"+", token_type::OPERATOR_ADD},
-        {"-", token_type::OPERATOR_SUB},
-        {"*", token_type::OPERATOR_MUL},
-        {"/", token_type::OPERATOR_DIV},
-        {"%", token_type::OPERATOR_MOD},
-        {"=", token_type::OPERATOR_ASSIGN},
-        {"+=", token_type::OPERATOR_ADD_ASSIGN},
-        {"-=", token_type::OPERATOR_SUB_ASSIGN},
-        {"*=", token_type::OPERATOR_MUL_ASSIGN},
-        {"/=", token_type::OPERATOR_DIV_ASSIGN},
-        {"%=", token_type::OPERATOR_MOD_ASSIGN},
-        {"&=", token_type::OPERATOR_AND_ASSIGN},
-        {"|=", token_type::OPERATOR_OR_ASSIGN},
-        {"^=", token_type::OPERATOR_XOR_ASSIGN},
-        {"==", token_type::OPERATOR_EQ},
-        {"!=", token_type::OPERATOR_NE},
-        {">", token_type::OPERATOR_GT},
-        {">=", token_type::OPERATOR_GE},
-        {"<", token_type::OPERATOR_LT},
-        {"<=", token_type::OPERATOR_LE},
-        {":", token_type::OPERATOR_COLON},
-        {",", token_type::OPERATOR_COMMA},
-        {"?", token_type::OPERATOR_QUESTION},
-        {"++", token_type::OPERATOR_INC},
-        {"--", token_type::OPERATOR_DEC},
-        {"->", token_type::OPERATOR_ARROW},
-        {"&&", token_type::OPERATOR_AND},
-        {"||", token_type::OPERATOR_OR},
-        {"!", token_type::OPERATOR_NOT},
-        {"&", token_type::OPERATOR_BITAND},
-        {"|", token_type::OPERATOR_BITOR},
-        {"^", token_type::OPERATOR_BITXOR},
-        {"~", token_type::OPERATOR_BITNOT},
-        {"...", token_type::OPERATOR_VARARG},
-        {"(", token_type::OPERATOR_LPAREN},
-        {")", token_type::OPERATOR_RPAREN},
-        {"[", token_type::OPERATOR_LBRACKET},
-        {"]", token_type::OPERATOR_RBRACKET},
-        {"{", token_type::OPERATOR_LBRACE},
-        {"}", token_type::OPERATOR_RBRACE},
+        {"+",   operator_type::OPERATOR_ADD},
+        {"-",   operator_type::OPERATOR_SUB},
+        {"*",   operator_type::OPERATOR_MUL},
+        {"/",   operator_type::OPERATOR_DIV},
+        {"%",   operator_type::OPERATOR_MOD},
+        {"=",   operator_type::OPERATOR_ASSIGN},
+        {"+=",  operator_type::OPERATOR_ADD_ASSIGN},
+        {"-=",  operator_type::OPERATOR_SUB_ASSIGN},
+        {"*=",  operator_type::OPERATOR_MUL_ASSIGN},
+        {"/=",  operator_type::OPERATOR_DIV_ASSIGN},
+        {"%=",  operator_type::OPERATOR_MOD_ASSIGN},
+        {"&=",  operator_type::OPERATOR_AND_ASSIGN},
+        {"|=",  operator_type::OPERATOR_OR_ASSIGN},
+        {"^=",  operator_type::OPERATOR_XOR_ASSIGN},
+        {"==",  operator_type::OPERATOR_EQ},
+        {"!=",  operator_type::OPERATOR_NE},
+        {">",   operator_type::OPERATOR_GT},
+        {">=",  operator_type::OPERATOR_GE},
+        {"<",   operator_type::OPERATOR_LT},
+        {"<=",  operator_type::OPERATOR_LE},
+        {":",   operator_type::OPERATOR_COLON},
+        {",",   operator_type::OPERATOR_COMMA},
+        {"?",   operator_type::OPERATOR_QUESTION},
+        {"++",  operator_type::OPERATOR_INC},
+        {"--",  operator_type::OPERATOR_DEC},
+        {"->",  operator_type::OPERATOR_ARROW},
+        {".",   operator_type::OPERATOR_DOT},
+        {"&&",  operator_type::OPERATOR_AND},
+        {"||",  operator_type::OPERATOR_OR},
+        {"!",   operator_type::OPERATOR_NOT},
+        {"&",   operator_type::OPERATOR_BITAND},
+        {"|",   operator_type::OPERATOR_BITOR},
+        {"^",   operator_type::OPERATOR_BITXOR},
+        {"~",   operator_type::OPERATOR_BITNOT},
+        {"...", operator_type::OPERATOR_VARARG},
+        {"(",   operator_type::OPERATOR_LPAREN},
+        {")",   operator_type::OPERATOR_RPAREN},
+        {"[",   operator_type::OPERATOR_LBRACKET},
+        {"]",   operator_type::OPERATOR_RBRACKET},
+        {"{",   operator_type::OPERATOR_LBRACE},
+        {"}",   operator_type::OPERATOR_RBRACE},
+        {";",   operator_type::OPERATOR_SEMI},
     });
     lexer.lex(d);
+
+    for (const auto &token : d) {
+        switch (token->_type) {
+            case token_type::ID_OR_KW:
+                printf(":: ID or KW: [%s]\n", static_cast<token_id_or_kw *>(token.get())->_value.c_str());
+                break;
+            case token_type::INT_LITERAL:
+                printf(":: int literal: [%ld]\n", static_cast<token_int_literal *>(token.get())->_value);
+                break;
+            case token_type::FLOATING_LITERAL:
+                printf(":: float literal: [%lf]\n", static_cast<token_float_literal *>(token.get())->_value);
+                break;
+            case token_type::STRING_LITERAL:
+                printf(":: string literal: [%s]\n", static_cast<token_string_literal *>(token.get())->_value.c_str());
+                break;
+            case token_type::OPERATOR:
+                printf(":: operator: [%s]\n", static_cast<token_operator *>(token.get())->_value.c_str());
+                break;
+            case token_type::PREPROCESSOR:
+            case token_type::UNDEFINED:
+                break;
+        }
+    }
 }

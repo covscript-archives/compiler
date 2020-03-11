@@ -12,12 +12,17 @@
 
 namespace cs_impl {
     enum class token_type {
-        END_OF_FILE,
+        UNDEFINED,
         ID_OR_KW,
         INT_LITERAL,
         FLOATING_LITERAL,
         STRING_LITERAL,
         PREPROCESSOR,
+        OPERATOR,
+    };
+
+    enum class operator_type {
+        UNDEFINED,
         OPERATOR_ADD,
         OPERATOR_SUB,
         OPERATOR_MUL,
@@ -44,6 +49,7 @@ namespace cs_impl {
         OPERATOR_INC,
         OPERATOR_DEC,
         OPERATOR_ARROW,
+        OPERATOR_DOT,
         OPERATOR_AND,
         OPERATOR_OR,
         OPERATOR_NOT,
@@ -58,23 +64,43 @@ namespace cs_impl {
         OPERATOR_RBRACKET, // ]
         OPERATOR_LBRACE,   // {
         OPERATOR_RBRACE,   // }
+
+        OPERATOR_SEMI,
     };
 
     struct token {
-        token_type _type = token_type::END_OF_FILE;
+        std::size_t _line;
+        std::size_t _column;
+        std::string _token_text;
+        token_type _type;
 
-        explicit token(token_type type) : _type(type) {}
+        explicit token(std::size_t line, std::size_t column,
+                       std::string text, token_type type)
+            : _line(line), _column(column),
+              _token_text(std::move(text)), _type(type) {}
 
         virtual ~token() = default;
+    };
 
-        token_type type() const { return _type; }
+    struct token_operator : public token {
+        std::string _value;
+        operator_type _op_type;
+
+        explicit token_operator(std::size_t line, std::size_t column,
+                                std::string text, std::string value, operator_type type)
+            : token(line, column, std::move(text), token_type::OPERATOR),
+              _value(std::move(value)), _op_type(type) {}
+
+        ~token_operator() override = default;
     };
 
     struct token_preprocessor : public token {
         std::string _value;
 
-        explicit token_preprocessor(std::string value)
-            : token(token_type::PREPROCESSOR), _value(std::move(value)) {}
+        explicit token_preprocessor(std::size_t line, std::size_t column,
+                                    std::string text, std::string value)
+            : token(line, column, std::move(text), token_type::PREPROCESSOR),
+              _value(std::move(value)) {}
 
         ~token_preprocessor() override = default;
     };
@@ -82,8 +108,10 @@ namespace cs_impl {
     struct token_id_or_kw : public token {
         std::string _value;
 
-        explicit token_id_or_kw(std::string value)
-            : token(token_type::ID_OR_KW), _value(std::move(value)) {}
+        explicit token_id_or_kw(std::size_t line, std::size_t column,
+                                std::string text, std::string value)
+            : token(line, column, std::move(text), token_type::ID_OR_KW),
+              _value(std::move(value)) {}
 
         ~token_id_or_kw() override = default;
     };
@@ -91,8 +119,10 @@ namespace cs_impl {
     struct token_int_literal : public token {
         int64_t _value;
 
-        explicit token_int_literal(int64_t value)
-            : token(token_type::INT_LITERAL), _value(value) {}
+        explicit token_int_literal(std::size_t line, std::size_t column,
+                                   std::string text, int64_t value)
+            : token(line, column, std::move(text), token_type::INT_LITERAL),
+              _value(value) {}
 
         ~token_int_literal() override = default;
     };
@@ -100,8 +130,10 @@ namespace cs_impl {
     struct token_float_literal : public token {
         double _value;
 
-        explicit token_float_literal(double value)
-            : token(token_type::FLOATING_LITERAL), _value(value) {}
+        explicit token_float_literal(std::size_t line, std::size_t column,
+                                     std::string text, double value)
+            : token(line, column, std::move(text), token_type::FLOATING_LITERAL),
+              _value(value) {}
 
         ~token_float_literal() override = default;
     };
@@ -109,8 +141,10 @@ namespace cs_impl {
     struct token_string_literal : public token {
         std::string _value;
 
-        explicit token_string_literal(std::string value)
-            : token(token_type::STRING_LITERAL), _value(std::move(value)) {}
+        explicit token_string_literal(std::size_t line, std::size_t column,
+                                      std::string text, std::string value)
+            : token(line, column, std::move(text), token_type::STRING_LITERAL),
+              _value(std::move(value)) {}
 
         ~token_string_literal() override = default;
     };
@@ -202,7 +236,18 @@ namespace cs_impl {
     private:
         state_manager _state;
         lexer_input<CharT> _input;
-        std::unordered_map<std::string, token_type> _op_maps;
+        std::unordered_map<std::string, operator_type> _op_maps;
+
+        template <typename T, typename ...Args>
+        std::unique_ptr<token> make_token(std::size_t line, iter_t line_start,
+                                          iter_t token_start, iter_t token_end,
+                                          Args &&...args) {
+            return std::unique_ptr<token>(
+                new T{line, static_cast<std::size_t>(token_start - line_start),
+                      std::basic_string<CharT>(token_start, token_end - token_start),
+                      std::forward<Args>(args)...}
+            );
+        }
 
         // return true if it's id or keyword
         bool is_id_or_kw(CharT c, bool first) const {
@@ -210,6 +255,10 @@ namespace cs_impl {
                    || c == '$'
                    || c == '_'
                    || (!first && std::isdigit(c));
+        }
+
+        bool is_separator_char(CharT c) {
+            return std::isspace(c) || c == ';';
         }
 
         mpp::string_ref consume_preprocessor(iter_t &current, iter_t &end) {
@@ -391,9 +440,11 @@ namespace cs_impl {
             return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
         }
 
-        std::pair<mpp::string_ref, token_type> consume_operator(iter_t &current, iter_t &end) {
+        std::pair<mpp::string_ref, operator_type> consume_operator(iter_t &current, iter_t &end) {
             iter_t left = current;
-            while (current < end && !std::isspace(*current) && !is_id_or_kw(*current, false)) {
+            while (current < end
+                   && !is_separator_char(*current)
+                   && !is_id_or_kw(*current, false)) {
                 ++current;
             }
 
@@ -405,7 +456,7 @@ namespace cs_impl {
             }
 
             _state.new_state(lexer_state::ERROR_OPERATOR);
-            return std::make_pair(op, token_type::END_OF_FILE);
+            return std::make_pair(op, operator_type::UNDEFINED);
         }
 
     public:
@@ -413,7 +464,7 @@ namespace cs_impl {
             _input.source(str.c_str(), str.length());
         }
 
-        void add_operators(const std::unordered_map<std::string, token_type> &ops) {
+        void add_operators(const std::unordered_map<std::string, operator_type> &ops) {
             _op_maps.insert(ops.begin(), ops.end());
         }
 
@@ -430,10 +481,12 @@ namespace cs_impl {
                 if (line_start == p) {
                     if (*p == '#' || *p == '@') {
                         // comment and preprocessor tag in CovScript 3
+                        iter_t token_start = p;
                         auto value = consume_preprocessor(p, end);
                         switch (_state.pop()) {
                             case lexer_state::PREPROCESSOR:
-                                printf("meet proprocessor: [%s]\n", value.str().c_str());
+                                tokens.push_back(make_token<token_preprocessor>(line_no, line_start,
+                                    token_start, p, value.str()));
                                 break;
                             default:
                                 printf("should not reach here\n");
@@ -443,29 +496,31 @@ namespace cs_impl {
                     }
                 }
 
+                // skip separators
+                if (is_separator_char(*p)) {
+                    ++p;
+                    continue;
+                }
+
                 // if we meet \n
                 if (*p == '\n') {
                     ++line_no;
                     line_start = ++p;
-                    printf("meet new line\n");
-                    continue;
-                }
-
-                // skip whitespaces
-                if (std::isspace(*p)) {
-                    ++p;
                     continue;
                 }
 
                 // digit
                 if (std::isdigit(*p)) {
+                    iter_t token_start = p;
                     auto result = consume_number(p, end);
                     switch (_state.pop()) {
                         case lexer_state::INT_LIT:
-                            printf("meet int literal: %ld\n", result.first);
+                            tokens.push_back(make_token<token_int_literal>(
+                                line_no, line_start, token_start, p, result.first));
                             break;
                         case lexer_state::FLOATING_LIT:
-                            printf("meet double literal: %lf\n", result.second);
+                            tokens.push_back(make_token<token_float_literal>(
+                                line_no, line_start, token_start, p, result.second));
                             break;
                         default:
                             printf("should not reach here\n");
@@ -476,10 +531,12 @@ namespace cs_impl {
 
                 // string literal
                 if (*p == '"') {
+                    iter_t token_start = p;
                     auto value = consume_string_lit(p, end);
                     switch (_state.pop()) {
                         case lexer_state::STRING_LIT:
-                            printf("meet string lit: [%s]\n", value.str().c_str());
+                            tokens.push_back(make_token<token_string_literal>(
+                                line_no, line_start, token_start, p, value.str()));
                             break;
                         case lexer_state::ERROR_EOF:
                             printf("unexpected EOF\n");
@@ -496,15 +553,20 @@ namespace cs_impl {
 
                 // id or kw
                 if (is_id_or_kw(*p, true)) {
+                    iter_t token_start = p;
                     auto value = consume_id_or_kw(p, end);
-                    printf("meet id or kw: [%s]\n", value.str().c_str());
+                    tokens.push_back(make_token<token_id_or_kw>(
+                        line_no, line_start, token_start, p, value.str()));
                     continue;
                 }
 
+                iter_t token_start = p;
+                // we have operators
                 auto value = consume_operator(p, end);
                 switch (_state.pop()) {
                     case lexer_state::OPERATOR:
-                        printf("meet operator: [%s]\n", value.first.str().c_str());
+                        tokens.push_back(make_token<token_operator>(
+                            line_no, line_start, token_start, p, value.first.str(), value.second));
                         break;
                     case lexer_state::ERROR_OPERATOR:
                         printf("!! unexpected token [%s]\n", value.first.str().c_str());
