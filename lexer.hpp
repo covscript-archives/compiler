@@ -10,6 +10,7 @@
 #include <mozart++/string>
 #include <mozart++/iterator_range>
 #include <mozart++/format>
+#include <utility>
 
 namespace cs_impl {
     enum class token_type {
@@ -20,6 +21,7 @@ namespace cs_impl {
         STRING_LITERAL,
         PREPROCESSOR,
         OPERATOR,
+        CUSTOM_LITERAL,
     };
 
     enum class operator_type {
@@ -150,6 +152,20 @@ namespace cs_impl {
         ~token_string_literal() override = default;
     };
 
+    struct token_custom_literal : public token {
+        std::unique_ptr<token> _literal;
+        std::string _suffix;
+
+        explicit token_custom_literal(std::size_t line, std::size_t column,
+                                      std::string text, std::unique_ptr<token> literal,
+                                      std::string value)
+            : token(line, column, std::move(text), token_type::CUSTOM_LITERAL),
+              _literal(std::move(literal)),
+              _suffix(std::move(value)) {}
+
+        ~token_custom_literal() override = default;
+    };
+
     enum class lexer_state {
         GLOBAL,
         INT_LIT,
@@ -157,8 +173,10 @@ namespace cs_impl {
         STRING_LIT,
         PREPROCESSOR,
         OPERATOR,
+        LITERAL_SUFFIX,
 
         PARSING_STRING,
+        TRYING_LITERAL_SUFFIX,
 
         ERROR_EOF,
         ERROR_ESCAPE,
@@ -237,10 +255,10 @@ namespace cs_impl {
         std::string _error_text;
 
         explicit lexer_error(std::size_t line, std::size_t column,
-                             const std::string &error_text,
+                             std::string error_text,
                              const std::string &message)
             : std::runtime_error(message), _line(line), _column(column),
-              _error_text(error_text) {
+              _error_text(std::move(error_text)) {
         }
 
         ~lexer_error() override = default;
@@ -266,6 +284,7 @@ namespace cs_impl {
         }
 
         template <typename ...Args>
+        __attribute__((noreturn))
         void error(std::size_t line, iter_t line_start,
                    iter_t token_start, iter_t token_end,
                    const std::string &fmt, Args &&...args) {
@@ -275,6 +294,7 @@ namespace cs_impl {
                 std::basic_string<CharT>(token_start, token_end - token_start),
                 message
             );
+            std::terminate();
         }
 
         // return true if it's id or keyword
@@ -487,6 +507,19 @@ namespace cs_impl {
             return std::make_pair(op, operator_type::UNDEFINED);
         }
 
+        mpp::string_ref try_consume_literal_suffix(std::deque<std::unique_ptr<token>> &tokens,
+                                                   std::size_t line_no, iter_t line_start,
+                                                   iter_t &current, iter_t end) {
+            // got literal suffix
+            if (*current != '_') {
+                return mpp::string_ref{};
+            }
+
+            auto value = consume_id_or_kw(current, end);
+            _state.new_state(lexer_state::LITERAL_SUFFIX);
+            return value;
+        }
+
     public:
         void source(const std::basic_string<CharT> &str) {
             _input.source(str.c_str(), str.length());
@@ -505,6 +538,9 @@ namespace cs_impl {
             iter_t line_start = p;
 
             while (p != end) {
+                /////////////////////////////////////////////////////////////////
+                // special position
+                /////////////////////////////////////////////////////////////////
                 // tokens only available in the beginning of a line
                 if (line_start == p) {
                     if (*p == '#' || *p == '@') {
@@ -519,11 +555,51 @@ namespace cs_impl {
                             default:
                                 error(line_no, line_start, token_start, p,
                                     "<internal error>: illegal state in preprocessor tag");
-                                return;
                         }
                         continue;
                     }
                 }
+
+                /////////////////////////////////////////////////////////////////
+                // special state
+                /////////////////////////////////////////////////////////////////
+                if (_state.current() == lexer_state::TRYING_LITERAL_SUFFIX) {
+                    // parse custom literals
+                    _state.end(lexer_state::TRYING_LITERAL_SUFFIX);
+
+                    // lookahead and parse literal suffix
+                    iter_t token_start = p;
+                    auto value = try_consume_literal_suffix(tokens, line_no, line_start, p, end);
+
+                    if (_state.current() == lexer_state::LITERAL_SUFFIX) {
+                        _state.end(lexer_state::LITERAL_SUFFIX);
+                        if (tokens.empty()) {
+                            error(line_no, line_start, p, p,
+                                "<internal error>: illegal state in literal suffix");
+                        }
+
+                        switch (tokens.back()->_type) {
+                            case token_type::STRING_LITERAL:
+                            case token_type::INT_LITERAL:
+                            case token_type::FLOATING_LITERAL:
+                                break;
+                            default:
+                                error(line_no, line_start, token_start, p,
+                                    "unsupported literal suffix {} after non-literal", value.str());
+                        }
+
+                        auto literal = std::move(tokens.back());
+                        tokens.pop_back();
+                        tokens.push_back(make_token<token_custom_literal>(
+                            line_no, line_start, token_start, p,
+                            std::move(literal), value.str()));
+                    }
+                    continue;
+                }
+
+                /////////////////////////////////////////////////////////////////
+                // global state
+                /////////////////////////////////////////////////////////////////
 
                 // skip separators
                 if (is_separator_char(*p)) {
@@ -546,15 +622,18 @@ namespace cs_impl {
                         case lexer_state::INT_LIT:
                             tokens.push_back(make_token<token_int_literal>(
                                 line_no, line_start, token_start, p, result.first));
+                            // try parse literal suffix
+                            _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
                             break;
                         case lexer_state::FLOATING_LIT:
                             tokens.push_back(make_token<token_float_literal>(
                                 line_no, line_start, token_start, p, result.second));
+                            // try parse literal suffix
+                            _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
                             break;
                         default:
                             error(line_no, line_start, token_start, p,
                                 "<internal error>: illegal state in number literal");
-                            return;
                     }
                     continue;
                 }
@@ -567,20 +646,19 @@ namespace cs_impl {
                         case lexer_state::STRING_LIT:
                             tokens.push_back(make_token<token_string_literal>(
                                 line_no, line_start, token_start, p, value.str()));
+                            // try parse literal suffix
+                            _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
                             break;
                         case lexer_state::ERROR_EOF:
                             printf("unexpected EOF\n");
                             error(line_no, line_start, token_start, p,
                                 "unexpected EOF");
-                            return;
                         case lexer_state::ERROR_ESCAPE:
                             error(line_no, line_start, token_start, p,
                                 "unsupported escape char: \\{}", *p);
-                            return;
                         default:
                             error(line_no, line_start, token_start, p,
                                 "<internal error>: illegal state in string literal");
-                            return;
                     }
                     continue;
                 }
@@ -605,11 +683,9 @@ namespace cs_impl {
                     case lexer_state::ERROR_OPERATOR:
                         error(line_no, line_start, token_start, p,
                             "unexpected token {}", value.first.str());
-                        return;
                     default:
                         error(line_no, line_start, token_start, p,
                             "<internal error>: illegal state in post-done lex");
-                        return;
                 }
             }
         }

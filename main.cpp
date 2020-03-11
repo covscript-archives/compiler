@@ -15,8 +15,14 @@ int main() {
                        "var hi = \"hello\\n\" +"
                        "    \"world\\n\" +"
                        "    \", I love\""
-                       "var me = 12304"
-                       "var e = \"\"";
+                       "var me = 12304\n"
+                       "var e1 = \"abv\" "
+                       "var e2 = \"\"_lit2 "
+                       "var e3 = \"\"_li$\n"
+                       "var e4 = \"\"_ "
+                       "var e5 = 1_lint "
+                       "var e6 = 1.0_lfloat\n"
+                       "var e7 = 0x88_lhex\n";
 
     lexer.source(code);
 
@@ -81,6 +87,25 @@ int main() {
             case token_type::STRING_LITERAL:
                 printf(":: string literal: [%s]\n", static_cast<token_string_literal *>(token.get())->_value.c_str());
                 break;
+            case token_type::CUSTOM_LITERAL: {
+                printf(":: custom literal: ");
+                auto lit = static_cast<token_custom_literal *>(token.get());
+                switch (lit->_literal->_type) {
+                    case token_type::INT_LITERAL:
+                        printf("[%ld]", static_cast<token_int_literal *>(lit->_literal.get())->_value);
+                        break;
+                    case token_type::FLOATING_LITERAL:
+                        printf("[%lf]", static_cast<token_float_literal *>(lit->_literal.get())->_value);
+                        break;
+                    case token_type::STRING_LITERAL:
+                        printf("[%s]", static_cast<token_string_literal *>(lit->_literal.get())->_value.c_str());
+                        break;
+                    default:
+                        printf(":: impossible token\n");
+                }
+                printf(" on [%s]\n", static_cast<token_custom_literal *>(token.get())->_suffix.c_str());
+                break;
+            }
             case token_type::OPERATOR:
                 printf(":: operator: [%s]\n", static_cast<token_operator *>(token.get())->_value.c_str());
                 break;
