@@ -503,15 +503,21 @@ namespace cs_impl {
                 ++current;
             }
 
-            std::string op = _charset->wide2local({left, static_cast<std::size_t>(current - left)});
-            auto iter = _op_maps.find(op);
-            if (iter != _op_maps.end()) {
-                _state.new_state(lexer_state::OPERATOR);
-                return std::make_pair(op, iter->second);
+            iter_t most = current;
+            while (current != left) {
+                std::string op = _charset->wide2local({left, static_cast<std::size_t>(current - left)});
+                auto iter = _op_maps.find(op);
+                if (iter != _op_maps.end()) {
+                    _state.new_state(lexer_state::OPERATOR);
+                    return std::make_pair(op, iter->second);
+                }
+                --current;
             }
 
             _state.new_state(lexer_state::ERROR_OPERATOR);
-            return std::make_pair(op, operator_type::UNDEFINED);
+            return std::make_pair(
+                _charset->wide2local({left, static_cast<std::size_t>(most - left)}),
+                operator_type::UNDEFINED);
         }
 
         std::string try_consume_literal_suffix(std::deque<std::unique_ptr<token>> &tokens,
