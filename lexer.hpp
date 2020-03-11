@@ -24,48 +24,48 @@ namespace cs_impl {
     };
 
     enum class operator_type {
-        UNDEFINED,
-        OPERATOR_ADD,
-        OPERATOR_SUB,
-        OPERATOR_MUL,
-        OPERATOR_DIV,
-        OPERATOR_MOD,
-        OPERATOR_ASSIGN,
-        OPERATOR_ADD_ASSIGN,
-        OPERATOR_SUB_ASSIGN,
-        OPERATOR_MUL_ASSIGN,
-        OPERATOR_DIV_ASSIGN,
-        OPERATOR_MOD_ASSIGN,
-        OPERATOR_AND_ASSIGN,
-        OPERATOR_OR_ASSIGN,
-        OPERATOR_XOR_ASSIGN,
-        OPERATOR_EQ,
-        OPERATOR_NE,
-        OPERATOR_GT,
-        OPERATOR_GE,
-        OPERATOR_LT,
-        OPERATOR_LE,
-        OPERATOR_COLON,
-        OPERATOR_COMMA,
-        OPERATOR_QUESTION,
-        OPERATOR_INC,
-        OPERATOR_DEC,
-        OPERATOR_ARROW,
-        OPERATOR_DOT,
-        OPERATOR_AND,
-        OPERATOR_OR,
-        OPERATOR_NOT,
-        OPERATOR_BITAND,
-        OPERATOR_BITOR,
-        OPERATOR_BITXOR,
-        OPERATOR_BITNOT,
-        OPERATOR_VARARG,
-        OPERATOR_LPAREN,   // (
-        OPERATOR_RPAREN,   // )
-        OPERATOR_LBRACKET, // [
-        OPERATOR_RBRACKET, // ]
-        OPERATOR_LBRACE,   // {
-        OPERATOR_RBRACE,   // }
+        UNDEFINED,             //
+        OPERATOR_ADD,          // +
+        OPERATOR_SUB,          // -
+        OPERATOR_MUL,          // *
+        OPERATOR_DIV,          // /
+        OPERATOR_MOD,          // *
+        OPERATOR_ASSIGN,       // =
+        OPERATOR_ADD_ASSIGN,   // +=
+        OPERATOR_SUB_ASSIGN,   // -=
+        OPERATOR_MUL_ASSIGN,   // *=
+        OPERATOR_DIV_ASSIGN,   // /=
+        OPERATOR_MOD_ASSIGN,   // %=
+        OPERATOR_AND_ASSIGN,   // &=
+        OPERATOR_OR_ASSIGN,    // |=
+        OPERATOR_XOR_ASSIGN,   // ^=
+        OPERATOR_EQ,           // ==
+        OPERATOR_NE,           // !=
+        OPERATOR_GT,           // >
+        OPERATOR_GE,           // >=
+        OPERATOR_LT,           // <
+        OPERATOR_LE,           // <=
+        OPERATOR_COLON,        // :
+        OPERATOR_COMMA,        // ,
+        OPERATOR_QUESTION,     // ?
+        OPERATOR_INC,          // ++
+        OPERATOR_DEC,          // --
+        OPERATOR_ARROW,        // ->
+        OPERATOR_DOT,          // .
+        OPERATOR_AND,          // &&
+        OPERATOR_OR,           // ||
+        OPERATOR_NOT,          // !
+        OPERATOR_BITAND,       // &
+        OPERATOR_BITOR,        // |
+        OPERATOR_BITXOR,       // ^
+        OPERATOR_BITNOT,       // ~
+        OPERATOR_VARARG,       // ...
+        OPERATOR_LPAREN,       // (
+        OPERATOR_RPAREN,       // )
+        OPERATOR_LBRACKET,     // [
+        OPERATOR_RBRACKET,     // ]
+        OPERATOR_LBRACE,       // {
+        OPERATOR_RBRACE,       // }
 
         OPERATOR_SEMI,
     };
@@ -89,7 +89,8 @@ namespace cs_impl {
         operator_type _op_type;
 
         explicit token_operator(std::size_t line, std::size_t column,
-                                std::string text, std::string value, operator_type type)
+                                std::string text, std::string value,
+                                operator_type type)
             : token(line, column, std::move(text), token_type::OPERATOR),
               _value(std::move(value)), _op_type(type) {}
 
