@@ -6,6 +6,7 @@
 #include <stack>
 #include <deque>
 #include <memory>
+#include <unordered_map>
 #include <mozart++/string>
 #include <mozart++/iterator_range>
 
@@ -17,6 +18,46 @@ namespace cs_impl {
         FLOATING_LITERAL,
         STRING_LITERAL,
         PREPROCESSOR,
+        OPERATOR_ADD,
+        OPERATOR_SUB,
+        OPERATOR_MUL,
+        OPERATOR_DIV,
+        OPERATOR_MOD,
+        OPERATOR_ASSIGN,
+        OPERATOR_ADD_ASSIGN,
+        OPERATOR_SUB_ASSIGN,
+        OPERATOR_MUL_ASSIGN,
+        OPERATOR_DIV_ASSIGN,
+        OPERATOR_MOD_ASSIGN,
+        OPERATOR_AND_ASSIGN,
+        OPERATOR_OR_ASSIGN,
+        OPERATOR_XOR_ASSIGN,
+        OPERATOR_EQ,
+        OPERATOR_NE,
+        OPERATOR_GT,
+        OPERATOR_GE,
+        OPERATOR_LT,
+        OPERATOR_LE,
+        OPERATOR_COLON,
+        OPERATOR_COMMA,
+        OPERATOR_QUESTION,
+        OPERATOR_INC,
+        OPERATOR_DEC,
+        OPERATOR_ARROW,
+        OPERATOR_AND,
+        OPERATOR_OR,
+        OPERATOR_NOT,
+        OPERATOR_BITAND,
+        OPERATOR_BITOR,
+        OPERATOR_BITXOR,
+        OPERATOR_BITNOT,
+        OPERATOR_VARARG,
+        OPERATOR_LPAREN,   // (
+        OPERATOR_RPAREN,   // )
+        OPERATOR_LBRACKET, // [
+        OPERATOR_RBRACKET, // ]
+        OPERATOR_LBRACE,   // {
+        OPERATOR_RBRACE,   // }
     };
 
     struct token {
@@ -80,11 +121,13 @@ namespace cs_impl {
         FLOATING_LIT,
         STRING_LIT,
         PREPROCESSOR,
+        OPERATOR,
 
         PARSING_STRING,
 
         ERROR_EOF,
         ERROR_ESCAPE,
+        ERROR_OPERATOR,
     };
 
     struct state_manager {
@@ -159,6 +202,7 @@ namespace cs_impl {
     private:
         state_manager _state;
         lexer_input<CharT> _input;
+        std::unordered_map<std::string, token_type> _op_maps;
 
         // return true if it's id or keyword
         bool is_id_or_kw(CharT c, bool first) const {
@@ -347,9 +391,30 @@ namespace cs_impl {
             return mpp::string_ref{left, static_cast<std::size_t>(current - left)};
         }
 
+        std::pair<mpp::string_ref, token_type> consume_operator(iter_t &current, iter_t &end) {
+            iter_t left = current;
+            while (current < end && !std::isspace(*current) && !is_id_or_kw(*current, false)) {
+                ++current;
+            }
+
+            mpp::string_ref op{left, static_cast<std::size_t>(current - left)};
+            auto iter = _op_maps.find(op.str());
+            if (iter != _op_maps.end()) {
+                _state.new_state(lexer_state::OPERATOR);
+                return std::make_pair(op, iter->second);
+            }
+
+            _state.new_state(lexer_state::ERROR_OPERATOR);
+            return std::make_pair(op, token_type::END_OF_FILE);
+        }
+
     public:
         void source(const std::basic_string<CharT> &str) {
             _input.source(str.c_str(), str.length());
+        }
+
+        void add_operators(const std::unordered_map<std::string, token_type> &ops) {
+            _op_maps.insert(ops.begin(), ops.end());
         }
 
         void lex(std::deque<std::unique_ptr<token>> &tokens) {
@@ -436,8 +501,18 @@ namespace cs_impl {
                     continue;
                 }
 
-                printf("meet char %c\n", *p);
-                ++p;
+                auto value = consume_operator(p, end);
+                switch (_state.pop()) {
+                    case lexer_state::OPERATOR:
+                        printf("meet operator: [%s]\n", value.first.str().c_str());
+                        break;
+                    case lexer_state::ERROR_OPERATOR:
+                        printf("!! unexpected token [%s]\n", value.first.str().c_str());
+                        return;
+                    default:
+                        printf("should not reach here\n");
+                        return;
+                }
             }
         }
     };
