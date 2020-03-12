@@ -26,7 +26,10 @@ int main() {
                        "变量 我爱你 = \"草你🐎的大🔨\""
                        "while(我爱你 != 淦tmd){"
                        "    打印(我日)"
-                       "}";
+                       "}"
+                       "var t = 'z'"
+                       "var t2 = 'z'_aa\n"
+                       ;
 
     lexer.source(code);
 
@@ -97,6 +100,9 @@ int main() {
             case token_type::STRING_LITERAL:
                 printf(":: string literal: [%s]\n", static_cast<token_string_literal *>(token.get())->_value.c_str());
                 break;
+            case token_type::CHAR_LITERAL:
+                printf(":: char literal: [%c]\n", static_cast<token_char_literal *>(token.get())->_value);
+                break;
             case token_type::CUSTOM_LITERAL: {
                 printf(":: custom literal: ");
                 auto lit = static_cast<token_custom_literal *>(token.get());
@@ -109,6 +115,9 @@ int main() {
                         break;
                     case token_type::STRING_LITERAL:
                         printf("[%s]", static_cast<token_string_literal *>(lit->_literal.get())->_value.c_str());
+                        break;
+                    case token_type::CHAR_LITERAL:
+                        printf("[%c]", static_cast<token_char_literal *>(lit->_literal.get())->_value);
                         break;
                     default:
                         printf(":: impossible token\n");
