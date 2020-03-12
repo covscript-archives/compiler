@@ -179,16 +179,20 @@ namespace cs_impl {
         INT_LIT,
         FLOATING_LIT,
         STRING_LIT,
+        CHAR_LIT,
         PREPROCESSOR,
         OPERATOR,
         LITERAL_SUFFIX,
 
         PARSING_STRING,
+        PARSING_CHAR,
         TRYING_LITERAL_SUFFIX,
 
         ERROR_EOF,
+        ERROR_ENCLOSING,
         ERROR_ESCAPE,
         ERROR_OPERATOR,
+        ERROR_EMPTY,
     };
 
     struct state_manager {
@@ -334,7 +338,50 @@ namespace cs_impl {
             return (c >= U'0' && c <= U'9');
         }
 
-        std::string consume_preprocessor(iter_t &current, iter_t &end) {
+        bool is_escape_char(CharT c) const {
+            switch (c) {
+                case U'r':  // \r
+                case U'n':  // \n
+                case U't':  // \t
+                case U'b':  // \b
+                case U'f':  // \f
+                case U'v':  // \v
+                case U'\\':
+                case U'"':  // \"
+                case U'\'':  // \'
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        CharT to_escaped_char(CharT c) const {
+            switch (c) {
+                case U'r':
+                    return U'\r';
+                case U'n':
+                    return U'\n';
+                case U't':
+                    return U'\t';
+                case U'b':
+                    return U'\b';
+                case U'f':
+                    return U'\f';
+                case U'v':
+                    return U'\v';
+                case U'\\':
+                    return U'\\';
+                case U'"':
+                    return U'"';
+                case U'\'':
+                    return U'\'';
+                default:
+                    // impossible here
+                    return '\0';
+            }
+        }
+
+        std::string consume_preprocessor(iter_t &current, iter_t end) {
             iter_t left = current;
             auto length = static_cast<std::size_t>(end - current);
             auto *s = std::char_traits<char32_t>::find(current, length, U'\n');
@@ -344,7 +391,7 @@ namespace cs_impl {
             return _charset->wide2local({left, static_cast<std::size_t>(current - left)});
         }
 
-        std::pair<int64_t, double> consume_number(iter_t &current, iter_t &end) {
+        std::pair<int64_t, double> consume_number(iter_t &current, iter_t end) {
             int64_t integer_part = *current++ - U'0';
             if (current == end) {
                 _state.new_state(lexer_state::INT_LIT);
@@ -439,7 +486,7 @@ namespace cs_impl {
             }
         }
 
-        std::string consume_string_lit(iter_t &current, iter_t &end) {
+        std::string consume_string_lit(iter_t &current, iter_t end) {
             if (*current == U'"') {
                 ++current;
             }
@@ -451,24 +498,12 @@ namespace cs_impl {
             bool escape = false;
             while (current < end && _state.current() == lexer_state::PARSING_STRING) {
                 if (escape) {
-                    switch (*current) {
-                        case U'r':  // \r
-                        case U'n':  // \n
-                        case U't':  // \t
-                        case U'x':  // \x
-                        case U'b':  // \b
-                        case U'f':  // \f
-                        case U'v':  // \v
-                        case U'\\':
-                        case U'e':  // \e
-                        case U'"':  // \"
-                            escape = false;
-                            ++current;
-                            break;
-                        default:
-                            // invalid escape char
-                            _state.replace(lexer_state::ERROR_ESCAPE);
-                            break;
+                    if (is_escape_char(*current)) {
+                        escape = false;
+                        ++current;
+                    } else {
+                        // invalid escape char
+                        _state.replace(lexer_state::ERROR_ESCAPE);
                     }
                 } else {
                     switch (*current) {
@@ -500,7 +535,69 @@ namespace cs_impl {
             }
         }
 
-        std::string consume_id_or_kw(iter_t &current, iter_t &end) {
+        char32_t consume_char_lit(iter_t &current, iter_t end) {
+            if (*current == U'\'') {
+                ++current;
+            }
+
+            if (current == end) {
+                _state.new_state(lexer_state::ERROR_EMPTY);
+                return 0;
+            }
+
+            bool escape = false;
+            bool found = false;
+
+            while (current < end && !found) {
+                if (escape) {
+                    if (is_escape_char(*current)) {
+                        found = true;
+                        break;
+                    } else {
+                        _state.new_state(lexer_state::ERROR_ESCAPE);
+                        return 0;
+                    }
+                } else {
+                    switch (*current) {
+                        case U'\\':
+                            escape = true;
+                            ++current;
+                            break;
+                        case U'\'':
+                            break;
+                        default:
+                            found = true;
+                            break;
+                    }
+                }
+            }
+
+            if (!found) {
+                // no char was found
+                _state.new_state(current == end ? lexer_state::ERROR_EOF : lexer_state::ERROR_EMPTY);
+                return 0;
+            }
+
+            CharT lit = *current++;
+            if (current == end) {
+                // there's one more `'`
+                _state.new_state(lexer_state::ERROR_EOF);
+                return 0;
+            }
+
+            if (*current != '\'') {
+                // there's one more `'`
+                _state.new_state(lexer_state::ERROR_ENCLOSING);
+                return 0;
+            }
+
+            // consume the closing `'`
+            ++current;
+            _state.new_state(lexer_state::CHAR_LIT);
+            return escape ? to_escaped_char(lit) : lit;
+        }
+
+        std::string consume_id_or_kw(iter_t &current, iter_t end) {
             // start part
             iter_t left = current++;
             while (current < end && is_id_or_kw(*current, false)) {
@@ -509,7 +606,7 @@ namespace cs_impl {
             return _charset->wide2local({left, static_cast<std::size_t>(current - left)});
         }
 
-        std::pair<std::string, operator_type> consume_operator(iter_t &current, iter_t &end) {
+        std::pair<std::string, operator_type> consume_operator(iter_t &current, iter_t end) {
             iter_t left = current;
 
             // be greedy, be lookahead
@@ -693,6 +790,37 @@ namespace cs_impl {
                         default:
                             error(line_no, line_start, token_start, p,
                                 "<internal error>: illegal state in string literal");
+                    }
+                    continue;
+                }
+
+                // char literal
+                if (*p == U'\'') {
+                    iter_t token_start = p;
+                    auto ch = consume_char_lit(p, end);
+                    switch (_state.pop()) {
+                        case lexer_state::CHAR_LIT:
+                            tokens.push_back(make_token<token_int_literal>(
+                                line_no, line_start, token_start, p, ch));
+                            // try parse literal suffix
+                            _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
+                            break;
+                        case lexer_state::ERROR_EOF:
+                            printf("unexpected EOF\n");
+                            error(line_no, line_start, token_start, p,
+                                "unexpected EOF");
+                        case lexer_state::ERROR_ESCAPE:
+                            error(line_no, line_start, token_start, p,
+                                "unsupported escape char: `\\{}`", *p);
+                        case lexer_state::ERROR_EMPTY:
+                            error(line_no, line_start, token_start, p,
+                                "empty char is not allowed");
+                        case lexer_state::ERROR_ENCLOSING:
+                            error(line_no, line_start, token_start, p,
+                                "unclosed char literal, expected `'`");
+                        default:
+                            error(line_no, line_start, token_start, p,
+                                "<internal error>: illegal state in char literal");
                     }
                     continue;
                 }
