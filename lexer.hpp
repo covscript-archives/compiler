@@ -395,7 +395,7 @@ namespace cs_impl {
         std::string consume_preprocessor(iter_t &current, iter_t end) {
             iter_t left = current;
             auto length = static_cast<std::size_t>(end - current);
-            auto *s = std::char_traits<char32_t>::find(current, length, U'\n');
+            auto *s = std::char_traits<CharT>::find(current, length, U'\n');
 
             current = s ? s : end;
             _state.new_state(lexer_state::PREPROCESSOR);
@@ -546,7 +546,7 @@ namespace cs_impl {
             }
         }
 
-        char32_t consume_char_lit(iter_t &current, iter_t end) {
+        CharT consume_char_lit(iter_t &current, iter_t end) {
             if (*current == U'\'') {
                 ++current;
             }
