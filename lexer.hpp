@@ -18,6 +18,7 @@ namespace cs_impl {
         INT_LITERAL,
         FLOATING_LITERAL,
         STRING_LITERAL,
+        CHAR_LITERAL,
         PREPROCESSOR,
         OPERATOR,
         CUSTOM_LITERAL,
@@ -156,6 +157,17 @@ namespace cs_impl {
         ~token_string_literal() override = default;
     };
 
+    struct token_char_literal : public token {
+        char32_t _value;
+
+        explicit token_char_literal(std::size_t line, std::size_t column,
+                                    std::string text, char32_t value)
+            : token(line, column, std::move(text), token_type::CHAR_LITERAL),
+              _value(value) {}
+
+        ~token_char_literal() override = default;
+    };
+
     struct token_custom_literal : public token {
         std::unique_ptr<token> _literal;
         std::string _suffix;
@@ -185,7 +197,6 @@ namespace cs_impl {
         LITERAL_SUFFIX,
 
         PARSING_STRING,
-        PARSING_CHAR,
         TRYING_LITERAL_SUFFIX,
 
         ERROR_EOF,
@@ -548,7 +559,7 @@ namespace cs_impl {
             bool escape = false;
             bool found = false;
 
-            while (current < end && !found) {
+            while (current < end) {
                 if (escape) {
                     if (is_escape_char(*current)) {
                         found = true;
@@ -558,16 +569,14 @@ namespace cs_impl {
                         return 0;
                     }
                 } else {
-                    switch (*current) {
-                        case U'\\':
-                            escape = true;
-                            ++current;
-                            break;
-                        case U'\'':
-                            break;
-                        default:
-                            found = true;
-                            break;
+                    if (*current == U'\\') {
+                        escape = true;
+                        ++current;
+                    } else if (*current == U'\'') {
+                        break;
+                    } else {
+                        found = true;
+                        break;
                     }
                 }
             }
@@ -710,9 +719,10 @@ namespace cs_impl {
                         }
 
                         switch (tokens.back()->_type) {
-                            case token_type::STRING_LITERAL:
                             case token_type::INT_LITERAL:
                             case token_type::FLOATING_LITERAL:
+                            case token_type::STRING_LITERAL:
+                            case token_type::CHAR_LITERAL:
                                 break;
                             default:
                                 error(line_no, line_start, token_start, p,
@@ -800,7 +810,7 @@ namespace cs_impl {
                     auto ch = consume_char_lit(p, end);
                     switch (_state.pop()) {
                         case lexer_state::CHAR_LIT:
-                            tokens.push_back(make_token<token_int_literal>(
+                            tokens.push_back(make_token<token_char_literal>(
                                 line_no, line_start, token_start, p, ch));
                             // try parse literal suffix
                             _state.new_state(lexer_state::TRYING_LITERAL_SUFFIX);
